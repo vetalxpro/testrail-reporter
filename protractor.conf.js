@@ -1,9 +1,9 @@
 const TReporter = require('./reporters/testrail-reporter');
 
 const tReporter = new TReporter({
-  host: 'HOST',
-  user: 'EMAIL',
-  password: 'PASSWORD',
+  host: '--YOUR_HOST--',
+  user: '--YOUR_EMAIL--',
+  password: '--YOUR_PASSWORD--',
   projectId: 1
   // runId: 46
 });
@@ -27,16 +27,16 @@ exports.config = {
     jasmine.getEnv().addReporter(tReporter);
   },
   beforeLaunch() {
-    console.log('before launch');
   },
   onComplete() {
-    console.log('Publishing results to TestRail...');
     return tReporter.publishResults()
       .then(() => {
         console.log('Results successfully published to TestRail');
-        // console.log(JSON.stringify(results,null,2));
       })
       .catch(( err ) => {
+        if ( err instanceof Error ) {
+          return console.log(err.message);
+        }
         console.log(err);
       });
   }

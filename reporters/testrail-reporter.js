@@ -1,7 +1,7 @@
 const assert = require('assert');
 const TestRail = require('testrail-api');
 
-const MODULE_NAME = 'jasmine-testrail-reporter';
+const MODULE_NAME = 'testrail-reporter';
 
 const EStatuses = {
   Passed: 1,
@@ -24,21 +24,15 @@ class TestRailReporter {
                  email = process.env.TESTRAIL_EMAIL,
                  password = process.env.TESTRAIL_PASSWORD,
                  projectId = process.env.TESTRAIL_PROJECT_ID,
-                 suiteId = process.env.TESTRAIL_SUITE_ID,
                  runId = process.env.TESTRAIL_RUN_ID
                } = {} ) {
-    this.testrail = null;
     this.projectId = projectId;
-    this.suiteId = suiteId;
     this.runId = runId;
-    this.testsFromServer = [];
-    this.casesFromServer = [];
 
     this.specResults = [];
     this.jasmineResults = {};
 
     this.asyncFlow = null;
-
 
     assert(user, `${MODULE_NAME}: user parameter should not be empty!`);
     assert(host, `${MODULE_NAME}: host parameter should not be empty!`);
@@ -70,13 +64,9 @@ class TestRailReporter {
       .then(( res ) => {
         const data = res.body;
         this.runId = data.id;
-        console.log(`runId successfully created: ${this.runId}`);
+        console.log(`runId successfully created. runId: ${this.runId}`);
         return this.runId;
       });
-  }
-
-  createTestCases() {
-    console.log(`${MODULE_NAME}: the method createTestCases is not implemented yet.`);
   }
 
   jasmineStarted( suiteInfo ) {
@@ -108,37 +98,41 @@ class TestRailReporter {
   }
 
   _asyncSpecDone( result ) {
-
-    // @todo: Do your async stuff here depending on `result.status`, take screenshots etc...
-    // await takeScreenshot();
-
+    // for additional async calls
   }
 
   publishResults() {
+    console.log('Gathering results for TestRail...');
     const allSpecsFromAllSuites = Object.values(this.jasmineResults).reduce(( acc, suite ) => [ ...acc, ...suite.specs ], []);
-    const resultsForCases = allSpecsFromAllSuites.map(( spec ) => {
+    const resultsForCases = allSpecsFromAllSuites.reduce(( results, spec ) => {
       spec.failedExpectations = spec.failedExpectations || [];
       spec.status = spec.status || '';
-      let caseId = 0;
+      let caseId;
       const matchArray = spec.description.match(/\((\d+):\)/);
       if ( matchArray && matchArray.length && matchArray.length > 1 ) {
         caseId = Number(matchArray[ 1 ]);
+        const caseResult = {
+          case_id: caseId,
+          status_id: jasmineToTestrailStatusesMatching[ spec.status ],
+          comment: `${spec.id}: ${spec.fullName}`,
+          defects: spec.failedExpectations.map(
+            el => `matcherName = ${el.matcherName}\nmessage = ${el.message}\nexpected = ${el.expected}\nactual=${el.actual}`
+          ).join('\n\n')
+        };
+        return [ ...results, caseResult ];
       } else {
-        throw new Error(`${MODULE_NAME}: The TestRail case number is not specified in the jasmine case title and more than one titles match.`);
+        console.log(`Case ID not found in spec ${spec.fullName}. This spec will NOT be send to TestRail`);
+        return results;
       }
-      return {
-        case_id: caseId,
-        status_id: jasmineToTestrailStatusesMatching[ spec.status ],
-        comment: `${spec.id}: ${spec.fullName}`,
-        defects: spec.failedExpectations.map(
-          el => `matcherName = ${el.matcherName}\nmessage = ${el.message}\nexpected = ${el.expected}\nactual=${el.actual}`
-        ).join('\n\n')
-      };
-    });
+    }, []);
     const caseIds = resultsForCases.map(( item ) => item.case_id);
-    return this.createRun(caseIds)
-      .then(( runId ) => this.testrail.addResultsForCases(runId, resultsForCases))
-      .then(( res ) => res.body);
+    if ( caseIds.length > 0 ) {
+      console.log('Publishing results to TestRail...');
+      return this.createRun(caseIds)
+        .then(( runId ) => this.testrail.addResultsForCases(runId, resultsForCases))
+        .then(( res ) => res.body);
+    }
+    return Promise.reject(new Error('There are no case IDs to send to TestRail. Publish results was aborted.'));
   }
 }
 
